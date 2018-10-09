@@ -1,0 +1,8 @@
+ObjectType = Image
+NDims = 2
+DimSize = 2560 3328
+ElementType = MET_UCHAR
+ElementSpacing = 1.000000 1.000000 1.000000
+ElementByteOrderMSB = False
+AnatomicalOrientation = RPI
+ElementDataFile = RCC_2.img

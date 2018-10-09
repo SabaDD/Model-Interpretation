@@ -26,10 +26,13 @@ from vis.visualization import visualize_saliency, visualize_activation, visualiz
 from vis.utils import utils
 from keras import activations
 
+
 import  tensorflow as tf
 from sklearn.model_selection import StratifiedKFold
 
 from Prediction import model_prediction
+from ReadGroundTruthImages import *
+from MakeSegmentedImages import *
 
 
 config = tf.ConfigProto()
@@ -42,12 +45,13 @@ data_path = PATH + '/Data_case_control_prior1'
 data_dir_list = os.listdir(data_path)
 
 img_data_list = []
-
+img_id = []
 for dataset in data_dir_list:
     img_list = os.listdir(data_path +'/' +dataset)
     print('loaded the images from dataset-'+'{}\n'.format(dataset))
     for img in img_list:
         splt_img = img.split("_")
+        img_id.append(splt_img[2])
         img_path = data_path + '/' + dataset + '/' + img
         img = image.load_img(img_path, target_size= (224,224))
         if(splt_img[1][0] == 'R'):
@@ -162,22 +166,33 @@ custom_resnet_model.layers[layer_idx].activation = activations.linear
 custom_resnet_model = utils.apply_modifications(custom_resnet_model)
 #mm = visualize_activation(custom_resnet_model, layer_idx, filter_indices = 0)
 #plt.imshow(mm[...,0])
-indices = np.where(y_test[:,0] == 0.)[0]
 
-for idx in indices:
-    img_to_visualize = X_test[idx]
+#this gives the index of cancer cases
+#indices = np.where(y_test[:,0] == 0.)[0]
+LOP = read_images()
 
+all_grads = []
+all_ground_truth = []
+
+for idx in range(0,113):
+#    img_to_visualize = X_test[idx]
+     img_to_visualize = img_data[idx]
+     pa = LOP.getPatientbyId(img_id[idx])
+     if(np.all(pa != None) and np.all(pa.getMamoImageCC()!= None)):
+        all_ground_truth.append(pa.getMamoImageCC())
 #    f, ax = plt.subplots(1, 3)
-    for i, modifier in enumerate([None]):
-        grads = visualize_saliency(custom_resnet_model, layer_idx, filter_indices = int(y_test[idx][0]), seed_input=img_to_visualize, backprop_modifier = modifier)
-        if modifier is None:
-            modifier = 'vanilla'
-#        plt.set_title(modifier)
-#        ax[i].imshow(grads, cmap='jet')
-        plt.figure(i)
-        plt.imshow(grads, cmap='jet')
-        plt.savefig(PATH+'/Results/R2/'+str(idx))
+        for i, modifier in enumerate([None]):
+    #        grads = visualize_saliency(custom_resnet_model, layer_idx, filter_indices = int(y_test[idx][0]), seed_input=img_to_visualize, backprop_modifier = modifier)
+             grads = visualize_saliency(custom_resnet_model, layer_idx, filter_indices = 1 , seed_input=img_to_visualize, backprop_modifier = modifier)
     
+             if modifier is None:
+                modifier = 'vanilla'
+    #        plt.set_title(modifier)
+    #        ax[i].imshow(grads, cmap='jet')
+             plt.figure(i)
+             plt.imshow(grads, cmap='jet')
+             plt.savefig(PATH+'/Results/R4/'+str(idx))
+             all_grads.append(grads)
     #penultimate_layer = utils.find_layer_idx(custom_resnet_model,'res5c_branch2c')
 #    f2, ax2 = plt.subplots(1,3)        
 #    for i, modifier in enumerate([None, 'guided', 'relu']):
@@ -189,39 +204,35 @@ for idx in indices:
 #    #    ax2[i].imshow(overlay(jet_heatmap, img_to_visualize))
 #        ax2[i].set_title(modifier) 
 #        ax2[i].imshow(grads, cmap='jet')
+all_IOU = []
+all_hit = [] 
+for thre in np.arange(0.0, 0.35, 0.05):
+    all_predictions = seg_all_saliency_maps(all_grads,thre)
+    IOU_for_thresh = []
+    hit_for_thresh = []
+    for i in range(len(all_predictions)):
+        pred = all_predictions[i]
+        plt.figure()
+        plt.imshow(pred, cmap='gray')
+        plt.savefig(PATH+'/Results/R7/pred_'+str(int(thre*100))+'_'+str(i)+'.png')
+        groundT = np.float64(all_ground_truth[i])
+        plt.close()
+        plt.figure()
+        plt.imshow(groundT, cmap='gray')
+        plt.savefig(PATH+'/Results/R7/groundT_'+str(int(thre*100))+'_'+str(i)+'.png')
+        plt.close()
+        IOU_for_thresh.append(find_intersection_over_union(pred, groundT))
+        hit_for_thresh.append(find_number_of_hits(pred, groundT))
+    with open(PATH+'/Results/R7/IOU_'+str(int(thre*100))+'_.txt', 'w') as f:
+        for item in IOU_for_thresh:
+            f.write("%s\n" % item)
+    all_IOU.append(IOU_for_thresh)
+    all_hit.append(hit_for_thresh)
+
+all_predictions = seg_all_saliency_maps_Achanta(allgrads)
+plt.figure()
+plt.imshow(all_predictions[1], cmap='gray')
+
+
     
-
-#plt.imshow(mm[...,0])
-
-## choose any image to want by specifying the index
-#img_to_visualize = X_train[65]
-## Keras requires the image to be in 4D
-## So we add an extra dimension to it.
-#img_to_visualize = np.expand_dims(img_to_visualize, axis=0)
-#
-#def layer_to_visualize(layer):
-#    inputs = [K.learning_phase()] + custom_resnet_model.inputs
-#
-#    _convout1_f = K.function(inputs, [layer.output])
-#    def convout1_f(X):
-#        # The [0] is to disable the training phase flag
-#        return _convout1_f([0] + [X])
-#
-#    convolutions = convout1_f(img_to_visualize)
-#    convolutions = np.squeeze(convolutions)
-#
-#    print ('Shape of conv:', convolutions.shape)
-#    
-#    n = convolutions.shape[0]
-#    n = int(np.ceil(np.sqrt(n)))
-#    
-#    # Visualization of each filter of the layer
-#    fig = plt.figure(figsize=(224,224))
-#    for i in range(len(convolutions)):
-#        ax = fig.add_subplot(n,n,i+1)
-#        ax.imshow(convolutions[i], cmap='gray')
-#
-#layer_to_visualize(model.get_layer('avg_pool'))
-#
-#layer_to_visualize(model.get_layer('output_layer'))
 
